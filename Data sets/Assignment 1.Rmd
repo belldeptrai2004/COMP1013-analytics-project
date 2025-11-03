@@ -1,0 +1,41 @@
+---
+title: "COMP1013 Analytics Programming Project"
+author: "Phạm Minh Khôi – 22145599"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output: 
+  pdf_document:
+    number_sections: true
+fontsize: 12pt
+geometry: margin=1in
+---
+```{r}
+# Load necessary packages
+library(readr)
+library(dplyr)
+
+# Load the CSV files
+engines <- read_csv("Engine.csv")
+automobile <- read_csv("Automobile.csv")
+maintenance <- read_csv("Maintenance.csv")
+
+# Check if data is loaded
+head(engines)
+head(automobile)
+head(maintenance)
+```
+```{r}
+# Replace "?" with NA in character columns
+replace_q_to_na <- function(df){
+  df %>%
+    mutate(across(where(is.character), ~na_if(., "?")))
+}
+
+engines_na     <- replace_q_to_na(engines)
+automobile_na  <- replace_q_to_na(automobile)
+maintenance_na <- replace_q_to_na(maintenance)
+
+# Check if replacement worked
+summary(engines_na)
+summary(automobile_na)
+summary(maintenance_na)
+```
