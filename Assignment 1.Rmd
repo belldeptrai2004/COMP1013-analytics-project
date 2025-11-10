@@ -1,0 +1,84 @@
+---
+title: "COMP1013 Analytics Programming Project"
+author: "Phạm Minh Khôi – 22145599"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output: 
+  pdf_document:
+    number_sections: true
+fontsize: 12pt
+geometry: margin=1in
+---
+## Q1 — Data Cleaning and Preprocessing
+
+In this step, all three datasets were inspected for non-standard missing value encodings.  
+The datasets used `"?"` as a missing marker in categorical fields. These must be standardised to real `NA` values so that statistical functions handle them correctly. Key categorical variables are converted into factors because they represent discrete categories rather than continuous values. Horsepower has missing values, therefore median imputation was used, which is robust to outliers and preserves distribution central tendency.
+
+```{r}
+# Load CSV data
+
+engines     <- read_csv("Engine.csv")
+automobile  <- read_csv("Automobile.csv")
+maintenance <- read_csv("Maintenance.csv")
+
+head(engines)
+head(automobile)
+head(maintenance)
+
+```
+
+```{r}
+# count rows containing '?' before replacement
+rows_with_q <- function(df) {
+  char_df <- dplyr::select(df, where(is.character))
+  if (ncol(char_df) == 0) return(0L)
+  has_q <- apply(char_df, 1, function(row) any(row == "?", na.rm = TRUE))
+  sum(has_q)
+}
+affected_engines_rows     <- rows_with_q(engines)
+affected_automobile_rows  <- rows_with_q(automobile)
+affected_maintenance_rows <- rows_with_q(maintenance)
+
+# replace '?' with real NA
+replace_q_to_na <- function(df){
+  df %>% mutate(across(where(is.character), ~na_if(., "?")))
+}
+engines_na     <- replace_q_to_na(engines)
+automobile_na  <- replace_q_to_na(automobile)
+maintenance_na <- replace_q_to_na(maintenance)
+
+# convert categoricals to factors
+automobile_na$BodyStyles  <- factor(automobile_na$BodyStyles)
+engines_na$FuelTypes      <- factor(engines_na$FuelTypes)
+maintenance_na$ErrorCodes <- factor(maintenance_na$ErrorCodes)
+
+# impute Horsepower with median
+engines_before_impute <- engines_na
+engines_na$Horsepower <- as.numeric(engines_na$Horsepower)
+hp_median <- median(engines_na$Horsepower, na.rm = TRUE)
+engines_na$Horsepower[is.na(engines_na$Horsepower)] <- hp_median
+```
+
+```{r}
+# impact summary table (missing replaced + verification)
+impact_df <- data.frame(
+  Table = c("Engines","Automobile","Maintenance"),
+  Rows_with_Q_before = c(affected_engines_rows,
+                         affected_automobile_rows,
+                         affected_maintenance_rows)
+)
+impact_df$Total_Q_after <- c(
+  rows_with_q(engines_na),
+  rows_with_q(automobile_na),
+  rows_with_q(maintenance_na)
+)
+impact_df
+```
+
+```{r}
+# Horsepower distribution after imputation
+ggplot(engines_na, aes(Horsepower)) +
+  geom_histogram(bins=30) +
+  labs(title="Horsepower Distribution After Median Imputation",
+       x="Horsepower", y="Count") +
+  theme_minimal()
+```
