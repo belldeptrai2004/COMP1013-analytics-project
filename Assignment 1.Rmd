@@ -82,3 +82,38 @@ ggplot(engines_na, aes(Horsepower)) +
        x="Horsepower", y="Count") +
   theme_minimal()
 ```
+
+## Q2 — Exploratory Analysis
+
+Horsepower is not evenly distributed across engine configurations. When segmented by engine type, the horsepower values form distinct clusters rather than a single continuous distribution. This indicates that different engine architectures are engineered for different performance targets. Viewing horsepower as one pooled distribution hides this structural heterogeneity.
+When horsepower is segmented by engine size ranges, the separation becomes even clearer: smaller displacement groups are concentrated on lower horsepower values, while larger engine size ranges shift the distribution upward. This aligns with physical engineering principles, where engine displacement provides an upper limit on combustion energy output, and therefore horsepower. Segmenting the distribution into categorical strata produces a more interpretable representation than analysing horsepower globally.
+
+```{r}
+# Q2.1 — Horsepower distribution across Engine Types
+engines_na$Horsepower <- as.numeric(engines_na$Horsepower)
+engines_na$EngineType <- factor(engines_na$EngineType)
+
+ggplot(engines_na, aes(x = Horsepower)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(~ EngineType, ncol = 2, scales = "free_y") +
+  labs(title = "Horsepower Distribution by Engine Type",
+       x = "Horsepower", y = "Count") +
+  theme_minimal()
+```
+```{r}
+# Q2.2 — Horsepower distribution across Engine Size Groups
+engines_na$EngineSize <- as.numeric(engines_na$EngineSize)
+engines_na$EngineSizeGroup <- cut(
+  engines_na$EngineSize,
+  breaks = c(60,90,190,299,Inf),
+  labels = c("60-90","91-190","191-299","300+"),
+  include.lowest = TRUE, right = TRUE
+)
+
+ggplot(engines_na, aes(x = Horsepower)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(~ EngineSizeGroup, ncol = 2, scales = "free_y") +
+  labs(title = "Horsepower Distribution by Engine Size Groups",
+       x = "Horsepower", y = "Count") +
+  theme_minimal()
+```
