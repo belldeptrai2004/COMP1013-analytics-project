@@ -15,10 +15,9 @@ The datasets used `"?"` as a missing marker in categorical fields. These must be
 
 ```{r}
 # Load CSV data
-
-engines     <- read_csv("Engine.csv")
-automobile  <- read_csv("Automobile.csv")
-maintenance <- read_csv("Maintenance.csv")
+engines     <- read_csv("Data sets/Engine.csv")
+automobile  <- read_csv("Data sets/Automobile.csv")
+maintenance <- read_csv("Data sets/Maintenance.csv")
 
 head(engines)
 head(automobile)
@@ -116,4 +115,12 @@ ggplot(engines_na, aes(x = Horsepower)) +
   labs(title = "Horsepower Distribution by Engine Size Groups",
        x = "Horsepower", y = "Count") +
   theme_minimal()
+```
+
+## Q3 — Statistical Testing and Diagnostic Relationships
+
+```{r}
+auto_full <- engines_na %>%
+  left_join(automobile_na, by = "PlateNumber") %>%
+  left_join(maintenance_na, by = "PlateNumber")
 ```
