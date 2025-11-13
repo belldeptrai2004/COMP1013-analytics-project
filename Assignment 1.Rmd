@@ -8,119 +8,396 @@ output:
 fontsize: 12pt
 geometry: margin=1in
 ---
-## Q1 — Data Cleaning and Preprocessing
-
-In this step, all three datasets were inspected for non-standard missing value encodings.  
-The datasets used `"?"` as a missing marker in categorical fields. These must be standardised to real `NA` values so that statistical functions handle them correctly. Key categorical variables are converted into factors because they represent discrete categories rather than continuous values. Horsepower has missing values, therefore median imputation was used, which is robust to outliers and preserves distribution central tendency.
 
 ```{r}
-# Load CSV data
-engines     <- read_csv("Data sets/Engine.csv")
-automobile  <- read_csv("Data sets/Automobile.csv")
-maintenance <- read_csv("Data sets/Maintenance.csv")
-
-head(engines)
-head(automobile)
-head(maintenance)
-
+# setup library (recall every session)
+library(readr)   
+library(dplyr)   
+library(ggplot2)
+library(broom)
 ```
 
-```{r}
-# count rows containing '?' before replacement
-rows_with_q <- function(df) {
-  char_df <- dplyr::select(df, where(is.character))
-  if (ncol(char_df) == 0) return(0L)
-  has_q <- apply(char_df, 1, function(row) any(row == "?", na.rm = TRUE))
-  sum(has_q)
-}
-affected_engines_rows     <- rows_with_q(engines)
-affected_automobile_rows  <- rows_with_q(automobile)
-affected_maintenance_rows <- rows_with_q(maintenance)
+## Q1 — Data Cleaning and Preprocessing
 
-# replace '?' with real NA
-replace_q_to_na <- function(df){
-  df %>% mutate(across(where(is.character), ~na_if(., "?")))
+```{r}
+# 1) Load data --------------------------------------------------------------
+# Using read_csv preserves character variables which is required for cleaning
+engines     <- read_csv("Data sets/Engine.csv", show_col_types = FALSE)
+automobile  <- read_csv("Data sets/Automobile.csv", show_col_types = FALSE)
+maintenance <- read_csv("Data sets/Maintenance.csv", show_col_types = FALSE)
+
+
+# 2) Count number of rows containing "?" before replacement -----------------
+# Function detects any row where at least 1 categorical cell contains '?'
+rows_with_q <- function(df) {
+  char_df <- select(df, where(is.character))
+  if(ncol(char_df) == 0) return(0L)
+  sum(apply(char_df, 1, function(x) any(x == "?", na.rm = TRUE)))
 }
+
+affected_engines     <- rows_with_q(engines)
+affected_automobile  <- rows_with_q(automobile)
+affected_maintenance <- rows_with_q(maintenance)
+
+
+# 3) Replace "?" with NA (standardizing missing values) --------------------
+replace_q_to_na <- function(df){
+  df %>% mutate(across(where(is.character), ~na_if(.x,"?")))
+}
+
 engines_na     <- replace_q_to_na(engines)
 automobile_na  <- replace_q_to_na(automobile)
 maintenance_na <- replace_q_to_na(maintenance)
 
-# convert categoricals to factors
+
+# 4) Convert required categorical variables into factors -------------------
+# Note: dataset uses FuelType not FuelTypes → rename for robustness
+if ("FuelTypes" %in% names(engines_na) && !"FuelType" %in% names(engines_na)) {
+  engines_na <- engines_na %>% rename(FuelType = FuelTypes)
+}
+
 automobile_na$BodyStyles  <- factor(automobile_na$BodyStyles)
-engines_na$FuelTypes      <- factor(engines_na$FuelTypes)
+engines_na$FuelType       <- factor(engines_na$FuelType)
 maintenance_na$ErrorCodes <- factor(maintenance_na$ErrorCodes)
 
-# impute Horsepower with median
-engines_before_impute <- engines_na
-engines_na$Horsepower <- as.numeric(engines_na$Horsepower)
+
+# 5a) Impute missing Horsepower using median (robust to outliers) -----------
+engines_na$Horsepower <- suppressWarnings(as.numeric(engines_na$Horsepower))
 hp_median <- median(engines_na$Horsepower, na.rm = TRUE)
 engines_na$Horsepower[is.na(engines_na$Horsepower)] <- hp_median
-```
 
-```{r}
-# impact summary table (missing replaced + verification)
-impact_df <- data.frame(
+# 5b) Compare distribution before vs after to validate median imputation effect
+summary_before <- summary(as.numeric(engines$Horsepower[engines$Horsepower != "?"]))
+summary_after  <- summary(engines_na$Horsepower)
+
+summary_before
+summary_after
+
+
+# 6) Summary table confirming replacement impact ---------------------------
+impact_df <- tibble(
   Table = c("Engines","Automobile","Maintenance"),
-  Rows_with_Q_before = c(affected_engines_rows,
-                         affected_automobile_rows,
-                         affected_maintenance_rows)
-)
-impact_df$Total_Q_after <- c(
-  rows_with_q(engines_na),
-  rows_with_q(automobile_na),
-  rows_with_q(maintenance_na)
+  Rows_with_Q_before = c(affected_engines, affected_automobile, affected_maintenance),
+  Rows_with_Q_after  = c(rows_with_q(engines_na), rows_with_q(automobile_na), rows_with_q(maintenance_na))
 )
 impact_df
-```
 
-```{r}
-# Horsepower distribution after imputation
+
+# 7) Visualisation — Horsepower distribution after median imputation -------
 ggplot(engines_na, aes(Horsepower)) +
-  geom_histogram(bins=30) +
+  geom_histogram(bins = 30) +
   labs(title="Horsepower Distribution After Median Imputation",
        x="Horsepower", y="Count") +
   theme_minimal()
 ```
 
-## Q2 — Exploratory Analysis
-
-Horsepower is not evenly distributed across engine configurations. When segmented by engine type, the horsepower values form distinct clusters rather than a single continuous distribution. This indicates that different engine architectures are engineered for different performance targets. Viewing horsepower as one pooled distribution hides this structural heterogeneity.
-When horsepower is segmented by engine size ranges, the separation becomes even clearer: smaller displacement groups are concentrated on lower horsepower values, while larger engine size ranges shift the distribution upward. This aligns with physical engineering principles, where engine displacement provides an upper limit on combustion energy output, and therefore horsepower. Segmenting the distribution into categorical strata produces a more interpretable representation than analysing horsepower globally.
+## Q2 — Distribution analysis of Horsepower across EngineTypes and EngineSize groups
 
 ```{r}
-# Q2.1 — Horsepower distribution across Engine Types
-engines_na$Horsepower <- as.numeric(engines_na$Horsepower)
-engines_na$EngineType <- factor(engines_na$EngineType)
+# 0) Pick the cleaned engine table from Q1 (fallback to `engines` if needed)
+engines_work <- if (exists("engines_na")) engines_na else engines
 
-ggplot(engines_na, aes(x = Horsepower)) +
-  geom_histogram(bins = 30) +
-  facet_wrap(~ EngineType, ncol = 2, scales = "free_y") +
-  labs(title = "Horsepower Distribution by Engine Type",
+# -- Utility: normalize and rename columns by tolerant matching -------------
+# trims whitespace and returns a case-insensitive match if present
+col_exists_ci <- function(df, candidates) {
+  nms <- trimws(names(df))
+  for (cand in candidates) {
+    hit <- which(tolower(nms) == tolower(cand))
+    if (length(hit) == 1) return(nms[hit])
+  }
+  return(NA_character_)
+}
+rename_if_present <- function(df, candidates, newname) {
+  hit <- col_exists_ci(df, candidates)
+  if (!is.na(hit) && !(newname %in% names(df))) {
+    df <- dplyr::rename(df, !!newname := dplyr::all_of(hit))
+  }
+  df
+}
+
+# Common variants seen in CSVs / exports
+engines_work <- engines_work %>%
+  # Horsepower variants
+  rename_if_present(c("Horsepower","horse_power","hp","HP"), "Horsepower") %>%
+  # EngineTypes variants
+  rename_if_present(c("EngineTypes","EngineType","engine_types","engine_type"), "EngineTypes") %>%
+  # EngineSize variants
+  rename_if_present(c("EngineSize","Engine_Size","engine_size","Enginesize"), "EngineSize")
+
+# Quick sanity: reveal the resolved column names (optional for debugging)
+# print(names(engines_work))
+
+# 1) Preconditions & coercions ---------------------------------------------
+stopifnot(all(c("Horsepower","EngineTypes","EngineSize") %in% names(engines_work)))
+
+engines_work <- engines_work %>%
+  dplyr::mutate(
+    Horsepower  = suppressWarnings(as.numeric(Horsepower)),
+    EngineTypes = as.factor(EngineTypes),
+    EngineSize  = suppressWarnings(as.numeric(EngineSize))
+  )
+
+# 2) Robust histogram binwidth (Freedman–Diaconis) -------------------------
+fd_binwidth <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) < 2) return(1)
+  h <- 2 * IQR(x) / (length(x)^(1/3))
+  if (!is.finite(h) || h <= 0) h <- diff(range(x)) / 30
+  h
+}
+bw_hp <- fd_binwidth(engines_work$Horsepower)
+
+# 3) Summary table by EngineTypes ------------------------------------------
+hp_by_type <- engines_work %>%
+  dplyr::filter(!is.na(Horsepower), !is.na(EngineTypes)) %>%
+  dplyr::group_by(EngineTypes) %>%
+  dplyr::summarise(
+    n      = dplyr::n(),
+    mean   = mean(Horsepower),
+    median = median(Horsepower),
+    sd     = sd(Horsepower),
+    iqr    = IQR(Horsepower),
+    .groups = "drop"
+  ) %>%
+  dplyr::arrange(desc(mean))
+hp_by_type
+
+# 4) Histogram of Horsepower by EngineTypes --------------------------------
+ggplot(engines_work %>% dplyr::filter(!is.na(Horsepower), !is.na(EngineTypes)),
+       aes(Horsepower)) +
+  geom_histogram(binwidth = bw_hp, boundary = 0, closed = "left") +
+  facet_wrap(~ EngineTypes, scales = "free_y") +
+  labs(title = "Horsepower Distribution by EngineTypes",
+       subtitle = paste0("Binwidth = ", round(bw_hp, 1), " (Freedman–Diaconis)"),
+       x = "Horsepower", y = "Count") +
+  theme_minimal()
+
+# 5) Create EngineSize groups (60–90, 91–190, 191–299, 300+) ---------------
+size_breaks <- c(-Inf, 90, 190, 299, Inf)
+size_labels <- c("60–90", "91–190", "191–299", "300+")
+engines_work <- engines_work %>%
+  dplyr::mutate(EngineSizeGroup = cut(EngineSize, breaks = size_breaks, labels = size_labels, right = TRUE))
+
+# 6) Summary table by EngineSizeGroup --------------------------------------
+hp_by_size <- engines_work %>%
+  dplyr::filter(!is.na(Horsepower), !is.na(EngineSizeGroup)) %>%
+  dplyr::group_by(EngineSizeGroup) %>%
+  dplyr::summarise(
+    n      = dplyr::n(),
+    mean   = mean(Horsepower),
+    median = median(Horsepower),
+    sd     = sd(Horsepower),
+    iqr    = IQR(Horsepower),
+    .groups = "drop"
+  ) %>%
+  dplyr::arrange(EngineSizeGroup)
+hp_by_size
+
+# 7) Histogram of Horsepower by EngineSize groups --------------------------
+ggplot(engines_work %>% dplyr::filter(!is.na(Horsepower), !is.na(EngineSizeGroup)),
+       aes(Horsepower)) +
+  geom_histogram(binwidth = bw_hp, boundary = 0, closed = "left") +
+  facet_wrap(~ EngineSizeGroup, scales = "free_y") +
+  labs(title = "Horsepower Distribution by EngineSize Groups",
+       subtitle = paste0("Binwidth = ", round(bw_hp, 1), " (Freedman–Diaconis)"),
        x = "Horsepower", y = "Count") +
   theme_minimal()
 ```
-```{r}
-# Q2.2 — Horsepower distribution across Engine Size Groups
-engines_na$EngineSize <- as.numeric(engines_na$EngineSize)
-engines_na$EngineSizeGroup <- cut(
-  engines_na$EngineSize,
-  breaks = c(60,90,190,299,Inf),
-  labels = c("60-90","91-190","191-299","300+"),
-  include.lowest = TRUE, right = TRUE
-)
 
-ggplot(engines_na, aes(x = Horsepower)) +
-  geom_histogram(bins = 30) +
-  facet_wrap(~ EngineSizeGroup, ncol = 2, scales = "free_y") +
-  labs(title = "Horsepower Distribution by Engine Size Groups",
-       x = "Horsepower", y = "Count") +
+## Q3 — Statistical testing and diagnostics + Relationships
+
+```{r}
+# 0) Inputs from previous steps --------------------------------------------
+engines_q3     <- if (exists("engines_na")) engines_na else engines
+automobile_q3  <- if (exists("automobile_na")) automobile_na else automobile
+maintenance_q3 <- if (exists("maintenance_na")) maintenance_na else maintenance
+
+# If only EngineType exists, standardise to EngineTypes for consistency
+if ("EngineType" %in% names(engines_q3) && !("EngineTypes" %in% names(engines_q3))) {
+  engines_q3 <- engines_q3 %>%
+    dplyr::rename(EngineTypes = EngineType)
+}
+
+engines_q3 <- engines_q3 %>%
+  dplyr::mutate(
+    EngineTypes = as.factor(EngineTypes),
+    FuelType    = as.factor(FuelType)
+  )
+
+# 1) Build vehicle-level table ----------------------------------------------
+veh <- automobile_q3 %>%
+  dplyr::left_join(
+    engines_q3 %>% dplyr::select(EngineModel, FuelType),
+    by = "EngineModel"
+  ) %>%
+  dplyr::mutate(
+    CityMpg    = suppressWarnings(as.numeric(CityMpg)),
+    HighwayMpg = suppressWarnings(as.numeric(HighwayMpg)),
+    FuelType   = as.factor(FuelType),
+    DriveWheels= as.factor(DriveWheels)
+  )
+
+# 2) Q3a — Do diesel cars have higher CityMpg?
+df_tt <- veh %>%
+  dplyr::filter(!is.na(CityMpg), !is.na(FuelType))
+
+fuel_summary <- df_tt %>%
+  dplyr::group_by(FuelType) %>%
+  dplyr::summarise(
+    n    = dplyr::n(),
+    mean = mean(CityMpg),
+    sd   = sd(CityMpg),
+    med  = median(CityMpg),
+    iqr  = IQR(CityMpg),
+    .groups = "drop"
+  )
+
+tt_city <- t.test(CityMpg ~ FuelType, data = df_tt, var.equal = FALSE)
+broom::tidy(tt_city)
+
+ggplot(df_tt, aes(FuelType, CityMpg)) +
+  geom_boxplot() +
+  labs(title = "CityMpg by Fuel Type (Diesel vs Gas)",
+       x = "Fuel Type", y = "City MPG") +
+  theme_minimal()
+
+# 3) Q3b — Effect of DriveWheels on MPG -------------------------------------
+df_anova <- veh %>%
+  dplyr::filter(!is.na(CityMpg), !is.na(HighwayMpg), !is.na(DriveWheels))
+
+fit_city <- aov(CityMpg ~ DriveWheels, data = df_anova)
+broom::tidy(fit_city)
+TukeyHSD(fit_city)
+
+fit_hwy <- aov(HighwayMpg ~ DriveWheels, data = df_anova)
+broom::tidy(fit_hwy)
+TukeyHSD(fit_hwy)
+
+ggplot(df_anova, aes(DriveWheels, CityMpg)) +
+  geom_boxplot() +
+  labs(title="CityMpg by DriveWheels", y="City MPG", x=NULL) +
+  theme_minimal()
+
+ggplot(df_anova, aes(DriveWheels, HighwayMpg)) +
+  geom_boxplot() +
+  labs(title="HighwayMpg by DriveWheels", y="Highway MPG", x=NULL) +
+  theme_minimal()
+
+# 4) Q3c — Troubles and engine-related problems ------------------------------
+to_num <- function(x) as.numeric(as.character(x))
+
+trouble_all <- maintenance_q3 %>%
+  dplyr::mutate(ErrorNum = to_num(ErrorCodes)) %>%
+  dplyr::filter(!is.na(Troubles), !is.na(ErrorNum), ErrorNum != 0)
+
+top5_troubles_all <- trouble_all %>%
+  dplyr::count(Troubles, sort = TRUE) %>%
+  dplyr::slice_head(n = 5)
+
+top5_troubles_engine <- trouble_all %>%
+  dplyr::filter(ErrorNum == 1) %>%
+  dplyr::count(Troubles, sort = TRUE) %>%
+  dplyr::slice_head(n = 5)
+
+# 5) Q3d — Do engine-related troubles differ by EngineTypes? -----------------
+df_trouble_type <- trouble_all %>%
+  dplyr::left_join(automobile_q3 %>% dplyr::select(PlateNumber, EngineModel),
+                   by = "PlateNumber") %>%
+  dplyr::left_join(engines_q3 %>% dplyr::select(EngineModel, EngineTypes),
+                   by = "EngineModel") %>%
+  dplyr::mutate(EngineTypes = as.factor(EngineTypes))
+
+top5_names <- top5_troubles_engine$Troubles
+
+df_engine_top <- df_trouble_type %>%
+  dplyr::filter(
+    to_num(ErrorCodes) == 1,
+    !is.na(EngineTypes),
+    Troubles %in% top5_names
+  )
+
+xtab <- table(df_engine_top$EngineTypes, df_engine_top$Troubles)
+xtab
+chisq.test(xtab)
+
+ggplot(df_engine_top, aes(EngineTypes, fill = Troubles)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Top-5 Engine-Related Troubles by EngineTypes",
+       x = "EngineTypes", y = "Share within engine-related cases",
+       fill = "Trouble") +
   theme_minimal()
 ```
 
-## Q3 — Statistical Testing and Diagnostic Relationships
+## Q4 — Error frequency + Factor influence on maintenance methods
 
 ```{r}
-auto_full <- engines_na %>%
-  left_join(automobile_na, by = "PlateNumber") %>%
-  left_join(maintenance_na, by = "PlateNumber")
+
+# 0) Load cleaned version from Q1
+maintenance_q4 <- if (exists("maintenance_na")) maintenance_na else maintenance
+automobile_q4  <- if (exists("automobile_na")) automobile_na else automobile
+engines_q4     <- if (exists("engines_na")) engines_na else engines
+
+# Rename engine type if needed (EngineType → EngineTypes)
+if ("EngineType" %in% names(engines_q4) && !("EngineTypes" %in% names(engines_q4))) {
+  engines_q4 <- engines_q4 %>% dplyr::rename(EngineTypes = EngineType)
+}
+
+## 1) Convert variables into numeric & factors ------------------------------
+maintenance_q4 <- maintenance_q4 %>%
+  dplyr::mutate(
+    ErrorNum = as.numeric(as.character(ErrorCodes)),
+    Methods  = as.factor(Methods)   # đúng tên theo dataframe
+  )
+
+## 2) Which ErrorCodes occur most frequently? -------------------------------
+error_freq <- maintenance_q4 %>%
+  dplyr::count(ErrorCodes, sort = TRUE)
+
+# Most frequent single error
+top_error <- error_freq %>% dplyr::slice_max(n, n = 1, with_ties = FALSE)
+
+error_freq
+top_error
+
+## 3) Restrict to vehicles with confirmed / suspected trouble ---------------
+trouble_q4 <- maintenance_q4 %>%
+  dplyr::filter(!is.na(ErrorNum), ErrorNum != 0, !is.na(Methods)) %>%
+  dplyr::left_join(
+    automobile_q4 %>% dplyr::select(PlateNumber, BodyStyles, EngineModel),
+    by = "PlateNumber"
+  ) %>%
+  dplyr::left_join(
+    engines_q4 %>% dplyr::select(EngineModel, FuelType, EngineTypes),
+    by = "EngineModel"
+  ) %>%
+  dplyr::mutate(
+    BodyStyles = as.factor(BodyStyles),
+    FuelType   = as.factor(FuelType),
+    EngineTypes = as.factor(EngineTypes)
+  )
+
+## 4) Relationship: Methods ~ BodyStyles -----------------------------------
+tab_bs <- table(trouble_q4$Methods, trouble_q4$BodyStyles)
+tab_bs
+chisq.test(tab_bs)
+
+ggplot(trouble_q4, aes(BodyStyles, fill = Methods)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Maintenance Methods vs BodyStyles",
+       y = "Proportion", x = "Body Style") +
+  theme_minimal()
+
+## 5) Relationship: Methods ~ FuelType --------------------------------------
+tab_ft <- table(trouble_q4$Methods, trouble_q4$FuelType)
+tab_ft
+chisq.test(tab_ft)
+
+ggplot(trouble_q4, aes(FuelType, fill = Methods)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Maintenance Methods vs FuelType",
+       y = "Proportion", x = "Fuel Type") +
+  theme_minimal()
 ```
