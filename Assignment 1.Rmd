@@ -15,6 +15,7 @@ library(readr)
 library(dplyr)   
 library(ggplot2)
 library(broom)
+library(tibble)
 ```
 
 ## Q1 — Data Cleaning and Preprocessing
@@ -90,6 +91,71 @@ ggplot(engines_na, aes(Horsepower)) +
        x="Horsepower", y="Count") +
   theme_minimal()
 ```
+
+In this step I focus on making the three datasets usable for analysis by standardising missing values, correcting data types, and checking that the cleaning process does not distort the underlying distributions.
+
+
+1. Detecting and replacing non-standard missing values
+
+
+The raw files encode missing values as the character "?", which most R functions do not recognise as NA.
+
+I first wrote a helper function rows_with_q() that scans only the character columns of a data frame and counts how many rows contain at least one "?". This tells me how many records are affected, not just how many cells:
+
+- Before replacement, only the Engines table contained "?" values, with 6 affected rows, while Automobile and Maintenance had 0 affected rows.
+
+- After applying replace_q_to_na() (which converts every "?" in character columns to NA), the check shows 0 rows with "?" in all three tables, confirming that the non-standard missing codes have been fully removed.
+
+
+2. Converting key categorical variables to factors
+
+
+The assignment requires BodyStyles, FuelType(s) and ErrorCodes to be treated as categorical:
+
+- In Automobile, BodyStyles is converted to a factor.
+
+- In Engines, I normalise the possible naming inconsistency (FuelTypes vs FuelType) and then convert FuelType to a factor.
+
+- In Maintenance, ErrorCodes is also converted to a factor, which is appropriate because it represents discrete categories (0, 1, −1) rather than a continuous numeric scale.
+
+Storing these variables as factors ensures that later summaries, groupings and plots treat them as categories (e.g. separate bars) instead of numeric quantities.
+
+
+3. Median imputation for missing Horsepower
+
+
+Horsepower is an important continuous variable for later analysis, so missing values must be handled carefully:
+
+- I first coerce Horsepower to numeric, suppressing warnings caused by the old "?" values.
+
+- I then compute the median horsepower over the non-missing values and use this to impute the remaining NAs.
+
+The median is chosen instead of the mean because it is robust to outliers: extremely high-powered engines (close to 288 HP) do not drag the imputed value upwards. This keeps the typical engine closer to what the bulk of the data suggests.
+
+To check that this imputation does not distort the distribution, I compare the summaries before and after:
+
+- Before imputation (ignoring "?"), Horsepower has approximately:
+  - Min ≈ 48, 1st Quartile ≈ 80, Median ≈ 102, Mean ≈ 114.1, 3rd Quartile ≈ 144, Max ≈ 288.
+  
+- After imputing missing values with the median, the distribution is:
+  - Min ≈ 48, 1st Quartile ≈ 81, Median ≈ 102, Mean ≈ 114.0, 3rd Quartile ≈ 143.5, Max ≈ 288.
+  
+The minimum, median and maximum stay identical, and the mean and quartiles change only in the second decimal place. That indicates the imputation has a negligible impact on the overall shape and central tendency of the data.
+
+
+4. Visual inspection of the cleaned Horsepower distribution
+
+
+The final histogram of Horsepower after imputation shows:
+
+- A concentration of vehicles in the 80–120 HP range.
+ 
+- A right-skewed distribution with a long tail towards higher horsepower values (up to 288 HP). 
+
+- No artificial spikes at extreme values: imputed points are placed around the median and simply thicken the middle of the distribution.
+
+This confirms that the cleaning steps mainly standardised missing values and filled a small number of gaps without introducing unrealistic engines or changing the fundamental pattern in the data. The dataset is now in a consistent, analysis-ready state for the subsequent questions.
+
 
 ## Q2 — Distribution analysis of Horsepower across EngineTypes and EngineSize groups
 
@@ -203,6 +269,85 @@ ggplot(engines_work %>% dplyr::filter(!is.na(Horsepower), !is.na(EngineSizeGroup
        x = "Horsepower", y = "Count") +
   theme_minimal()
 ```
+
+From this step, I analyse how engine performance (Horsepower) is distributed across engine designs (EngineTypes) and engine size bands (EngineSizeGroup) to see where the power is really coming from in the fleet.
+
+
+1. Horsepower by EngineTypes
+
+The summary table hp_by_type shows:
+
+- ohc (overhead cam) is the dominant type in the dataset (n = 58) with:
+  - mean ≈ 99.6 HP, median ≈ 100 HP,
+  - a relatively large spread (sd ≈ 32 HP).
+
+- ohcf and rotor sit in the middle:
+  - ohcf: mean ≈ 106 HP, median ≈ 88 HP (quite skewed, some higher-power engines),
+  - rotor: mean and median ≈ 118 HP on just 2 observations.
+
+- dohc and ohcv have clearly higher power:
+  - dohc: mean ≈ 147 HP, median ≈ 156 HP (n = 7),
+  - ohcv: mean ≈ 176 HP, median ≈ 160 HP (n = 9).
+  
+- dohcv appears as the most powerful type with mean = median = 288 HP, but this is based on just 1 engine, so it is effectively an outlier, not a stable average.
+
+The faceted histogram confirms these patterns:
+
+- ohc engines form a fairly wide cluster roughly in the 70–140 HP range, representing mainstream, everyday engines.
+
+- dohc and ohcv panels are shifted to the right, with most observations above 120 HP, indicating that multi-cam and overhead valve designs in this dataset are typically used for more powerful configurations.
+
+- For types with small sample sizes (dohcv, rotor, ohcf), the histograms show just a few bars, so any “trend” there should be interpreted cautiously.
+
+Overall, more “advanced” valve/ camshaft configurations (dohc, ohcv) are associated with substantially higher horsepower, but this conclusion is strongest for ohcv and dohc, where there are at least several observations; the single dohcv engine cannot support a general statement.
+
+
+2. Horsepower by EngineSize groups
+
+
+Engine size is grouped into four bands:
+
+- 60–90 (small engines, n = 6)
+
+- 91–190 (medium engines, n = 74)
+
+- 191–299 (large engines, n = 5)
+
+- 300+ (very large engines, n = 3)
+
+The hp_by_size table and the second set of histograms show a clear monotonic pattern:
+
+- 60–90: mean ≈ 80 HP, median ≈ 69 HP
+  -> low-powered, compact engines, with horsepower tightly concentrated at the lower end.
+
+- 91–190: mean ≈ 107 HP, median ≈ 102 HP, n = 74
+  -> this is the main mass of the dataset; horsepower clusters around 90–130 HP, matching typical passenger cars.
+  
+- 191–299: mean ≈ 202 HP, median ≈ 182 HP
+  -> noticeable jump in power; these engines are clearly more performance-oriented.
+
+- 300+: mean ≈ 210 HP, median ≈ 184 HP, but only 3 engines
+  -> still high power, but sample size is very small, so the exact mean is unstable.
+  
+On the histograms, each size group’s distribution is shifted right as the capacity band increases. The 91–190 group shows the most regular, bell-like shape (many observations), while the extreme size bands (60–90, 191–299, 300+) have few engines and therefore chunkier, less smooth histograms.
+
+
+3. Combined interpretation  
+  
+
+Putting both dimensions together:
+
+- EngineType captures differences in design efficiency and tuning: dohc/ohcv engines deliver more horsepower even when sample sizes are modest, while ohc is the lower-power workhorse of the dataset.
+
+- EngineSize captures the more mechanical constraint: as displacement moves from 60–90 up to 191–299 and beyond, horsepower rises strongly, which is consistent with basic engine physics (more displacement -> more air–fuel mixture -> more potential power).
+
+So Q2 shows a consistent story:
+
+- Larger engines and more performance-oriented designs (dohc, ohcv) are associated with higher horsepower.
+
+- However, some extreme categories (like dohcv and the 300+ size group) have very few observations, so they should be treated as outliers or special cases, not as strong evidence about the wider population.
+
+
 
 ## Q3 — Statistical testing and diagnostics + Relationships
 
