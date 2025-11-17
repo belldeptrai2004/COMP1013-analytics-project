@@ -347,8 +347,6 @@ So Q2 shows a consistent story:
 
 - However, some extreme categories (like dohcv and the 300+ size group) have very few observations, so they should be treated as outliers or special cases, not as strong evidence about the wider population.
 
-
-
 ## Q3 — Statistical testing and diagnostics + Relationships
 
 ```{r}
@@ -474,6 +472,106 @@ ggplot(df_engine_top, aes(EngineTypes, fill = Troubles)) +
   theme_minimal()
 ```
 
+In this section, I examine three analytical questions:
+
+(1) whether CityMpg differs between diesel and gasoline vehicles,
+
+(2) whether DriveWheels influences fuel efficiency, and
+
+(3) whether engine-related problems concentrate in particular EngineTypes.
+
+All tests are carried out on the cleaned dataset from Q1.
+
+
+1. Diesel vs Gas — difference in CityMpg
+
+
+The descriptive statistics show a clear separation between the two fuel groups:
+
+- Diesel vehicles have a mean CityMpg of approximately 29 MPG,
+
+- Gasoline vehicles have a lower mean of approximately 23 MPG.
+
+The Welch t-test strengthens this observation:
+
+- test statistic ≈ 3.90,
+
+- p-value ≈ 0.000739,
+
+- 95% CI for the difference in means does not include zero.
+
+This provides strong statistical evidence that diesel vehicles achieve higher CityMpg than gasoline vehicles in this dataset.
+
+The boxplot also shows a consistent rightward shift for diesel, with fewer low-MPG observations.
+
+Because this result is statistically significant and aligns with known thermodynamic efficiency advantages of diesel engines, the relationship is considered robust in this dataset.
+
+
+2. Influence of DriveWheels on fuel efficiency
+
+
+A one-way ANOVA is used to examine whether fuel efficiency differs across DriveWheels categories.
+
+Both CityMpg and HighwayMpg yield highly significant results:
+
+- CityMpg: F ≈ 56.05, p < 2.3e-20
+
+- HighwayMpg: F ≈ 67.08, p < 2e-23
+
+These values indicate that DriveWheels is a major factor associated with fuel-efficiency differences.
+
+The TukeyHSD post-hoc test shows a consistent ordering:
+
+- FWD has the highest MPG,
+
+- RWD is lower,
+
+- 4WD is the lowest.
+
+This ordering is reflected in the boxplots: the FWD distribution sits noticeably higher, with RWD and 4WD shifting left.
+
+The result is also interpretable mechanically: FWD layouts tend to be lighter and have fewer drivetrain losses, while 4WD systems are heavier and incur greater mechanical resistance.
+
+Thus, the statistical tests and visualisations both indicate that DriveWheels significantly influences MPG, with FWD being the most efficient configuration in this dataset.
+
+
+3. Common engine-related problems and differences across EngineTypes
+
+
+After filtering ErrorCodes = 1, the five most frequent engine problems are:
+
+1. Cylinders
+
+2. Noise (finding)
+
+3. Ignition (finding)
+
+4. Valve clearance
+
+5. Fans
+
+These represent major functional components of the engine system, so their prominence is consistent with typical mechanical failure patterns.
+
+I then examined whether these problems differ across EngineTypes.
+
+However, the Chi-square test cannot be performed meaningfully because:
+
+- several EngineTypes have extremely small sample sizes (e.g., dohcv, rotor),
+
+- many cells in the contingency table have expected counts < 5,
+
+- this violates the assumptions of the Chi-square test, leading to X-squared = NaN and no valid p-value.
+
+Although a formal statistical test cannot be applied, the stacked bar chart provides some descriptive patterns:
+
+- EngineTypes with more complex configurations (e.g., DOHC, OHCV) show higher proportions of Ignition- and Valve-related findings.
+
+- OHC and OHCF have more dispersed problem types due to having larger sample sizes.
+
+- Rare EngineTypes cannot be interpreted meaningfully because of limited data.
+
+Overall, the dataset does not support a statistically reliable conclusion about differences in error patterns between EngineTypes, but the descriptive visualisation suggests plausible trends that would require a larger sample to verify.
+
 ## Q4 — Error frequency + Factor influence on maintenance methods
 
 ```{r}
@@ -546,3 +644,88 @@ ggplot(trouble_q4, aes(FuelType, fill = Methods)) +
        y = "Proportion", x = "Fuel Type") +
   theme_minimal()
 ```
+
+In this step, I first identify which error codes occur most often in the maintenance data, then test whether the choice of maintenance method (Adjustment, Replacement, Urgent care) is associated with vehicle BodyStyles or FuelType.
+
+All analyses are based on the cleaned tables from Q1.
+
+
+1. Error frequency in the maintenance data
+
+
+The error frequency table shows three values of ErrorCodes:
+
+- 1 – 182 records
+
+- -1 – 164 records
+
+- 0 – 28 records
+
+The most frequent code is 1, with 182 occurrences, followed by -1. Records with ErrorCodes = 0 are relatively rare (28 rows).
+
+Because the subsequent analysis filters to ErrorNum != 0, the working sample for Q4 focuses on vehicles where some kind of trouble was actually recorded (codes 1 or -1). This removes “no-error” rows and aligns the analysis with maintenance cases that required some action.
+
+
+2. Maintenance methods vs BodyStyles
+
+
+To see whether mechanics choose different methods for different body styles, I cross-tabulate Methods by BodyStyles and run a Chi-square test of independence:
+
+- The contingency table covers 5 body styles (convertible, hardtop, hatchback, sedan, wagon) and 3 methods (Adjustment, Replacement, Urgent care).
+
+- The Chi-square test gives
+  - X^2≈5.19 with 8 degrees of freedom,
+  - p-value ≈ 0.737.
+  
+A p-value this large means there is no statistical evidence that the distribution of methods differs by body style. The stacked bar chart supports this:
+
+- All body styles are dominated by Replacement and Adjustment, with Urgent care making up only a small share.
+
+- The relative proportions of the three methods look broadly similar across body styles; any visible differences are minor and well within sampling noise.
+
+There is a warning that “Chi-squared approximation may be incorrect,” which comes from some cells having low counts (e.g. very few convertibles with Urgent care). This reinforces the idea that we should not over-interpret small visual differences. Overall, the data suggest that body style does not materially drive the choice of maintenance method in this sample.
+
+
+3. Maintenance methods vs FuelType
+
+
+Next, I examine whether maintenance strategies differ between diesel and gasoline vehicles.
+
+The contingency table shows:
+
+- Diesel (28 cases total):
+  - Adjustment: 7
+  - Replacement: 21
+  - Urgent care: 0
+
+-  Gas (334 cases total):
+  - Adjustment: 128
+  - Replacement: 177
+  - Urgent care: 29
+  
+So, in relative terms:
+
+- Diesel: ~25% Adjustment, ~75% Replacement, 0% Urgent care.
+
+- Gas: ~38% Adjustment, ~53% Replacement, ~9% Urgent care.
+
+The Chi-square test gives:
+
+- X^2≈5.95, df = 2,
+
+- p-value ≈ 0.051.
+
+This p-value sits just above the conventional 5% threshold. Statistically:
+
+- At the 5% level, we fail to reject independence → we cannot claim a clear association between FuelType and maintenance method.
+
+- At a more lenient 10% level, the result would be borderline significant, suggesting a weak relationship.
+
+The stacked bar chart hints at a pattern:
+
+- Diesel vehicles rely proportionally more on Replacement and less on Adjustment or Urgent care compared with gasoline vehicles.
+
+- Gasoline vehicles show a small but visible portion of Urgent care jobs, which is absent for diesel in this dataset.
+
+However, the warning about the Chi-square approximation again signals that some expected counts (especially diesel + Urgent care = 0) are too low for a reliable large-sample test. Combined with the small diesel sample size, this means any conclusion about fuel-type–specific strategies must be treated as suggestive rather than definitive.
+
