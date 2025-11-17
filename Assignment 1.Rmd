@@ -729,3 +729,20 @@ The stacked bar chart hints at a pattern:
 
 However, the warning about the Chi-square approximation again signals that some expected counts (especially diesel + Urgent care = 0) are too low for a reliable large-sample test. Combined with the small diesel sample size, this means any conclusion about fuel-type–specific strategies must be treated as suggestive rather than definitive.
 
+## Q5 — Git Usage and Repository Submission
+
+For this project, Git and GitHub were used to manage version control of all analysis files.
+
+I enabled Git inside RStudio for the project and committed my work progressively after completing each major task (Q1 → Q4). Each commit includes meaningful messages describing the changes, such as:
+
+- “Q1 complete”
+
+- “Made adjustments to Q1 and Q2 and Q3”
+
+- “Writing explanation and findings for Q3 and Q4”
+
+RStudio’s Git interface was used to review diffs and maintain clean version history. A .gitignore file was also included to avoid tracking unnecessary system files.
+
+The final R Markdown file and the knitted PDF were committed and pushed to the project’s GitHub repository for assessment.
+
+Git repository link:
